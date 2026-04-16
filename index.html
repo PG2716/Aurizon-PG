@@ -592,8 +592,8 @@ function runSearch(){
                      '<span style="color:#7B1FA2"> Port</span>';
       // Clicking a signal: open signal ref, set direction, filter to that signal
       var onclick = r.dir==='port'
-        ? 'showPortSignals()'
-        : 'sigSetDir(\''+r.dir+'\');showSignals();setTimeout(function(){sigFilterAndOpen(\''+escKey(s[1])+'\');},200)';
+        ? 'showPortSignals();portSigFilterAndOpen(\''+escKey(s[1])+'\')'
+        : 'sigSetDir(\''+r.dir+'\');showSignals();sigFilterAndOpen(\''+escKey(s[1])+'\')';
       h += '<div class="sr-item" onclick="'+onclick+'" style="touch-action:manipulation">';
       h += '<div style="width:10px;height:10px;border-radius:50%;background:'+dotColor+';flex-shrink:0;margin-top:4px"></div>';
       h += '<div style="flex:1">';
@@ -631,26 +631,30 @@ function runSearch(){
 
 // Open signal ref and auto-open the matching signal card
 function sigFilterAndOpen(sigNum){
-  sigFilter(sigNum);
-  // Find and open the first matching card
+  var ql = (sigNum||'').toLowerCase().trim();
+  // First expand all zones so cards are in the DOM and visible
+  var allBodies = document.querySelectorAll('.sig-zone-body');
+  var allArrs   = document.querySelectorAll('.sig-zone-arr');
+  allBodies.forEach(function(b){ b.className='sig-zone-body open'; b.style.display='block'; });
+  allArrs.forEach(function(a){ a.style.transform='rotate(90deg)'; });
+  // Now find the matching card and open + scroll to it
   setTimeout(function(){
-    var zones = document.getElementById('page-signals');
-    if(!zones) return;
-    // Open the first zone that has matching signal
-    var cards = zones.querySelectorAll ? zones.querySelectorAll('.sig-card') : [];
+    var cards = document.querySelectorAll('.sig-card');
     for(var i=0; i<cards.length; i++){
-      var numEl = cards[i].querySelector ? cards[i].querySelector('.sig-num') : null;
-      if(numEl && numEl.textContent.toLowerCase().indexOf(sigNum.toLowerCase())>=0){
-        // Open the parent zone
-        var zone = cards[i].parentNode;
-        if(zone && !zone.classList.contains('open')) zone.classList.add('open');
-        // Open the card
-        cards[i].classList.add('open');
-        cards[i].scrollIntoView ? cards[i].scrollIntoView({behavior:'smooth',block:'center'}) : null;
+      var numEl = cards[i].querySelector('.sig-num');
+      var kmEl  = cards[i].querySelector('.sig-km');
+      var numTxt = numEl ? numEl.textContent.toLowerCase() : '';
+      var kmTxt  = kmEl  ? kmEl.textContent.toLowerCase()  : '';
+      if(numTxt.indexOf(ql)>=0 || kmTxt.indexOf(ql)>=0){
+        cards[i].className = 'sig-card open';
+        // Small delay then scroll so layout is settled
+        setTimeout(function(card){
+          card.scrollIntoView({behavior:'smooth', block:'center'});
+        }, 80, cards[i]);
         break;
       }
     }
-  }, 300);
+  }, 150);
 }
 
 // \u2500\u2500 CONFIRM (upload) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -747,7 +751,10 @@ function showEdit(catId,idx){
   var doc = allDocs(catId)[idx], cat = getCat(catId);
   S._editCat=catId; S._editIdx=idx;
   S._editSecs = (doc.sections||[]).map(function(s){ return JSON.parse(JSON.stringify(s)); });
+  S.page='doc';
   document.getElementById('hdr-title').textContent = 'Edit';
+  document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
+  document.getElementById('page-doc').classList.add('active');
   renderEdit();
 }
 
@@ -930,35 +937,59 @@ function renderSignalPage(){
 
 function sigFilter(q){
   var ql = (q||'').toLowerCase().trim();
-  var inp = document.getElementById('sig-search');
-  if(inp && inp.value !== q) inp.value = q||'';
-  
-  // Re-render with filter applied
-  var sigs  = SIG_DIR==='up' ? SIG_UP : SIG_DOWN;
-  var zones = SIG_DIR==='up' ? SIG_ZONES_UP : SIG_ZONES_DOWN;
-  
-  if(!ql){ renderSignalPage(); return; }
-  
-  var pg = document.getElementById('page-signals');
-  if(!pg) return;
 
-  // Show/hide signal cards based on filter
-  zones.forEach(function(z, zi){
-    var zid = 'sz'+zi;
-    var lo = Math.min(z[0],z[1]), hi = Math.max(z[0],z[1]);
-    var zoneSigs = sigs.filter(function(s){ var km=parseFloat(s[0]); return km>=lo && km<hi; });
-    var matches = zoneSigs.filter(function(s){
-      return s[0].indexOf(ql)>=0 || s[1].toLowerCase().indexOf(ql)>=0 || 
-             s[2].toLowerCase().indexOf(ql)>=0 || s[3].toLowerCase().indexOf(ql)>=0;
+  if(!ql){
+    // Show everything, collapse all zones
+    document.querySelectorAll('.sig-card').forEach(function(c){ c.style.display=''; c.className='sig-card'; });
+    document.querySelectorAll('.sig-zone-body').forEach(function(b){ b.className='sig-zone-body'; b.style.display='none'; });
+    document.querySelectorAll('.sig-zone-arr').forEach(function(a){ a.style.transform=''; });
+    return;
+  }
+
+  var firstMatch = null;
+
+  // Process every zone
+  document.querySelectorAll('.sig-zone').forEach(function(zone){
+    var body = zone.querySelector('.sig-zone-body');
+    var arr  = zone.querySelector('.sig-zone-arr');
+    if(!body) return;
+
+    var cards = body.querySelectorAll('.sig-card');
+    var zoneHasMatch = false;
+
+    cards.forEach(function(card){
+      var numEl = card.querySelector('.sig-num');
+      var kmEl  = card.querySelector('.sig-km');
+      var num   = numEl ? numEl.textContent.toLowerCase() : '';
+      var km    = kmEl  ? kmEl.textContent.toLowerCase()  : '';
+      var match = num.indexOf(ql)>=0 || km.indexOf(ql)>=0;
+      if(match){
+        card.style.display = '';
+        card.className = 'sig-card open';
+        zoneHasMatch = true;
+        if(!firstMatch) firstMatch = card;
+      } else {
+        card.style.display = 'none';
+        card.className = 'sig-card';
+      }
     });
-    var body = document.getElementById(zid+'-body');
-    var arr  = document.getElementById(zid+'-arr');
-    if(body && matches.length){
+
+    if(zoneHasMatch){
       body.className = 'sig-zone-body open';
       body.style.display = 'block';
       if(arr) arr.style.transform = 'rotate(90deg)';
+    } else {
+      body.className = 'sig-zone-body';
+      body.style.display = 'none';
+      if(arr) arr.style.transform = '';
     }
   });
+
+  if(firstMatch){
+    setTimeout(function(){
+      firstMatch.scrollIntoView({behavior:'smooth', block:'center'});
+    }, 50);
+  }
 }
 
 function sigToggleZone(zid){
@@ -2044,10 +2075,34 @@ function toggleEditMode(){
   else if(p==='favs')   showFavs();
   else if(p==='search'){ var lsEl=document.getElementById('ls'); runSearch(lsEl?lsEl.value:''); }
 }
-</script>
+
+function portSigFilterAndOpen(sigNum){
+  var ql = (sigNum||'').toLowerCase().trim();
+  // Expand all port zones
+  var allBodies = document.querySelectorAll('.sig-zone-body');
+  var allArrs   = document.querySelectorAll('.sig-zone-arr');
+  allBodies.forEach(function(b){ b.className='sig-zone-body open'; b.style.display='block'; });
+  allArrs.forEach(function(a){ a.style.transform='rotate(90deg)'; });
+  // Find and scroll to matching card
+  setTimeout(function(){
+    var cards = document.querySelectorAll('.sig-card');
+    for(var i=0; i<cards.length; i++){
+      var numEl = cards[i].querySelector('.sig-num');
+      var kmEl  = cards[i].querySelector('.sig-km');
+      var numTxt = numEl ? numEl.textContent.toLowerCase() : '';
+      var kmTxt  = kmEl  ? kmEl.textContent.toLowerCase()  : '';
+      if(numTxt.indexOf(ql)>=0 || kmTxt.indexOf(ql)>=0){
+        cards[i].className = 'sig-card open';
+        setTimeout(function(card){ card.scrollIntoView({behavior:'smooth',block:'center'}); }, 80, cards[i]);
+        break;
+      }
+    }
+  }, 150);
+}</script>
 <div class="tab-bar">
 <button class="tab-item active" id="tab-home" onclick="showHome()" style="touch-action:manipulation">
-<svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+<svg class="tab-svg" viewBox="0 0 
+24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
 <span class="tab-label">Home</span></button>
 <button class="tab-item" id="tab-docs" onclick="showDocsTab()" style="touch-action:manipulation">
 <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
