@@ -939,24 +939,18 @@ function sigFilter(q){
   var ql = (q||'').toLowerCase().trim();
 
   if(!ql){
-    // Show everything, collapse all zones
     document.querySelectorAll('.sig-card').forEach(function(c){ c.style.display=''; c.className='sig-card'; });
     document.querySelectorAll('.sig-zone-body').forEach(function(b){ b.className='sig-zone-body'; b.style.display='none'; });
     document.querySelectorAll('.sig-zone-arr').forEach(function(a){ a.style.transform=''; });
     return;
   }
 
-  var firstMatch = null;
-
-  // Process every zone
   document.querySelectorAll('.sig-zone').forEach(function(zone){
     var body = zone.querySelector('.sig-zone-body');
     var arr  = zone.querySelector('.sig-zone-arr');
     if(!body) return;
-
     var cards = body.querySelectorAll('.sig-card');
     var zoneHasMatch = false;
-
     cards.forEach(function(card){
       var numEl = card.querySelector('.sig-num');
       var kmEl  = card.querySelector('.sig-km');
@@ -967,13 +961,11 @@ function sigFilter(q){
         card.style.display = '';
         card.className = 'sig-card open';
         zoneHasMatch = true;
-        if(!firstMatch) firstMatch = card;
       } else {
         card.style.display = 'none';
         card.className = 'sig-card';
       }
     });
-
     if(zoneHasMatch){
       body.className = 'sig-zone-body open';
       body.style.display = 'block';
@@ -984,12 +976,6 @@ function sigFilter(q){
       if(arr) arr.style.transform = '';
     }
   });
-
-  if(firstMatch){
-    setTimeout(function(){
-      firstMatch.scrollIntoView({behavior:'smooth', block:'center'});
-    }, 50);
-  }
 }
 
 function sigToggleZone(zid){
